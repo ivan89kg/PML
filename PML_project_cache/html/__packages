@@ -1,0 +1,11 @@
+base
+lattice
+ggplot2
+caret
+RGtk2
+rattle
+rpart
+MASS
+survival
+gbm
+plyr
