@@ -1,0 +1,164 @@
+#Practical Machine Learining Project
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+The goal of this analysis is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 4 different ways. The machine learning model should use the readings of accelerometers and be able to predict whether the exercise was done correctly, or was it one of the 4 common mistakes.
+
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+##Data
+
+Data used in this analysis was downloaded from following links:
+
+* The training data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+* The verification data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+```{r,echo=FALSE}
+#loading data
+data.raw<-read.csv("C:/Users/Ivan/Desktop/R WD/Johns Hopkins - DSS/8. Practical Machine Learning/pml-training.csv")
+verification<-read.csv("C:/Users/Ivan/Desktop/R WD/Johns Hopkins - DSS/8. Practical Machine Learning/pml-testing.csv")
+```
+
+Packages used in the analysis were the following:
+```{r,message=FALSE,warning=FALSE}
+#loading packages
+library(caret)
+library(rattle)
+```
+
+##Exploratory data analysis
+
+The next step is some exploratory data analysis. I ran a number of summary functions in order to understand the data a little bit better. Because of the length of the document, I will not present the results of these functions. I applied names(), str() and summary() functions for all variables and the summary() of the explanatory variable-**classe** in particular. 
+```{r,results='hide'}
+#some exploratory data analysis
+names(data.raw)
+summary(data.raw$classe)
+str(data.raw)
+summary(data.raw)
+```
+
+##Cleaning the data
+
+Since there is a very large number of variables in the dataset (160), the goal of this section is to evaluate the variables, to see if there are some which will not contribute to the future model and to erase such variables from the dataset. The second part of this section evaluates distribution of the variables and transforms them so that their distributions more closely resemble Gaussian distribution, making these transformed variables better model predictors.
+
+The first step is to employ nearZeroVar() function to identify variables which have very low variance and as such would not contribute to the model. These variables are then eliminated.
+```{r}
+nzv <- nearZeroVar(data.raw, saveMetrics=TRUE)
+include.vars<-names(data.raw)[nzv$nzv==F]
+data<-data.raw[c(include.vars)]
+```
+
+Second step is to eliminate the **X** variable, since it only denotes the row numbers, it does not contain any useful information for prediction.
+```{r}
+data<-data[c(-1)]
+```
+
+The third step was to find variables which contain a large portion of missing values. I presented these figures in a table.
+```{r}
+table(apply(data,2,function(x) sum(is.na(x))/length(x)))
+```
+
+It can be seen that there are 58 variables with no missing values and 41 variables with approximately 98% of missing values. This percentage is very high, therefore I exclude these 41 variables from the dataset.
+```{r}
+eliminate<-character()
+for (i in names(data)) {
+        if (sum(is.na(data[c(i)]))/dim(data)[1] == 0.979308938946081) eliminate<-c(eliminate,i)
+}
+data<-data[,!(names(data) %in% eliminate)]
+```
+
+At this point, the dataset includes 58 variables, with no missing values. I take another look at the data, to evaluate the distribution of variables and to decide whether to impose any transformations. Again, because of the size of the document I do not present the results.
+```{r,results='hide',warning=FALSE}
+str(data)
+summary(data)
+table(apply(data,2,sd))
+```
+Str() function shows that 3 variables are of *Factor* type, while all the others are either *Numerical* or *Integer*. Summary() shows that the means and quantiles for most of the variables are very volatile. Table() shows pretty high standard deviations for most variables. In order to make variables' distributions more like Gaussian, I employed preProcess function to standardize the variables. 
+```{r}
+pproc<-preProcess(data,method=c("center","scale"))
+data<-predict(pproc,data)
+```
+
+The next step was to modify the verification dataset so that it matches the training dataset. Approprate variables were eliminated and remaining ones were standardized.
+```{r}
+verification<-verification[,names(verification) %in% names(data)]
+verification<-predict(pproc,verification)
+```
+
+In the end of this section, before I start building models, I dividied the training dataset in two parts - training and testing.
+```{r}
+set.seed(112233)
+inTrain<-createDataPartition(data$classe,p=0.7,list=F)
+training<-data[inTrain,]
+testing<-data[-inTrain,]
+```
+
+##Model creation and valuation
+
+###Decision tree
+
+The first model I set up is a Decision tree.
+```{r,cache=TRUE, message=FALSE}
+set.seed(112233)
+model.dt<-train(classe~.,method="rpart",data=training)
+fancyRpartPlot(model.dt$finalModel)
+```
+
+Next step is to use the model for predicting the outcomes in testing dataset and to evaluate the model performance.
+```{r}
+predict.dt<-predict(model.dt,testing)
+confusionMatrix(predict.dt,testing$classe)
+```
+
+It can be seen that this model was not very successful in prediction of the outcomes. Out of sample accuracy is only 56%. 
+
+Therefore, **out of sample error** for this model is 0.4401.
+
+###Linear Discriminant Analysis
+
+Since the prediction performance of Decision tree was not satisfactory I ran a second model - Linear Discriminant Analysis.
+```{r, cache=TRUE, warning=FALSE}
+set.seed(112233)
+model.lda<-train(classe~.,method="lda",data=training)
+print(model.lda)
+```
+
+I used the model on the training dataset to make the predictions and I proceed with evaluating the prediction performance.
+```{r}
+predict.lda<-predict(model.lda,testing)
+confusionMatrix(predict.lda,testing$classe)
+```
+
+Linear Discriminant Analysis comes up with a model which is much more successful than the Decision Tree. It can be seen from the Confusion Matrix that the missclassifications occur much more rarely, and the out of sample accuracy is 85%.
+
+Therefore, **out of sample error** for this model is 0.146.
+
+###Generalized Boosted Regression Model
+
+The final model I build and evaluate is a Generalized Boosted Regression Model.
+```{r,cache=TRUE, message=FALSE}
+set.seed(112233)
+model.boost<-train(classe~.,method="gbm",data=training,verbose=F)
+print(model.boost)
+```
+
+I used the model on the training dataset to make the predictions and I proceed with evaluating the prediction performance.
+```{r}
+predict.boost<-predict(model.boost,testing)
+confusionMatrix(predict.boost,testing$classe)
+```
+
+Genralized Boosted Regression Model performs by far the best compared to other models I used in this analsysis. Most of the 5885 cases from the testing dataset are correctly classified and the out of sample accuracy is 99.6%. 
+
+Therefore, **out of sample error** for this model is 0.0037.
+
+Since this model performs by far the best among the 3 models considered, I use it to predict outcomes in the validation dataset.
+
+##Predicting results on verification dataset
+
+The final part of this analysis is to use the selected model to predict outcomes for the 20 cases in the validation dataset. The results are the following:
+```{r}
+answers<-predict(model.boost,verification)
+answers
+```
